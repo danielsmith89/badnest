@@ -48,6 +48,7 @@ class NestAPI():
         self.cameras = []
         self.thermostats = []
         self.temperature_sensors = []
+        self.hotwatercontrollers = []
         self.protects = []
         self.login()
         self._get_devices()
@@ -153,6 +154,7 @@ class NestAPI():
                     sn = bucket.replace('device.', '')
                     self.thermostats.append(sn)
                     self.temperature_sensors.append(sn)
+                    self.hotwatercontrollers.append(sn)
                     self.device_data[sn] = {}
 
             self.cameras = self._get_cameras()
@@ -270,6 +272,25 @@ class NestAPI():
                         self.device_data[sn]['eco'] = True
                     else:
                         self.device_data[sn]['eco'] = False
+
+                    # Hot water
+                    # - Status
+                    self.device_data[sn]['has_hot_water_control'] = \
+                        sensor_data["has_hot_water_control"]
+                    self.device_data[sn]['hot_water_status'] = \
+                        sensor_data["hot_water_active"]
+                    self.device_data[sn]['hot_water_actively_heating'] = \
+                        sensor_data["hot_water_boiling_state"]
+                    self.device_data[sn]['hot_water_away_active'] = \
+                        sensor_data["hot_water_away_active"]
+                    # - Status/Settings
+                    self.device_data[sn]['hot_water_timer_mode'] = \
+                        sensor_data["hot_water_mode"]
+                    self.device_data[sn]['hot_water_away_setting'] = \
+                        sensor_data["hot_water_away_enabled"]
+                    self.device_data[sn]['hot_water_boost_setting'] = \
+                        sensor_data["hot_water_boost_time_to_end"]
+
                 # Protect
                 elif bucket["object_key"].startswith(
                         f"topaz.{sn}"):
@@ -483,6 +504,89 @@ class NestAPI():
             _LOGGER.debug('Failed to set eco, trying to log in again')
             self.login()
             self.thermostat_set_eco_mode(device_id, state)
+
+    def hotwater_set_boost(self, device_id, time):
+        if device_id not in self.hotwatercontrollers:
+            return
+
+        try:
+            self._session.post(
+                f"{self._czfe_url}/v5/put",
+                json={
+                    "objects": [
+                        {
+                            "object_key": f'device.{device_id}',
+                            "op": "MERGE",
+                            "value": {"hot_water_boost_time_to_end": time},
+                        }
+                    ]
+                },
+                headers={"Authorization": f"Basic {self._access_token}"},
+            )
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error(e)
+            _LOGGER.error('Failed to boost hot water, trying again')
+            self.hotwater_set_boost(device_id, time)
+        except KeyError:
+            _LOGGER.debug('Failed to boost hot water, trying to log in again')
+            self.login()
+            self.hotwater_set_boost(device_id, time)
+
+    def hotwater_set_away_mode(self, device_id, away_mode):
+        if device_id not in self.hotwatercontrollers:
+            return
+
+        try:
+            self._session.post(
+                f"{self._czfe_url}/v5/put",
+                json={
+                    "objects": [
+                        {
+                            "object_key": f'device.{device_id}',
+                            "op": "MERGE",
+                            "value": {"hot_water_away_enabled": away_mode},
+                        }
+                    ]
+                },
+                headers={"Authorization": f"Basic {self._access_token}"},
+            )
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error(e)
+            _LOGGER.error('Failed to set hot water away mode, trying again')
+            self.hotwater_set_away_mode(device_id, away_mode)
+        except KeyError:
+            _LOGGER.debug('Failed to set hot water away mode, '
+                          'trying to log in again')
+            self.login()
+            self.hotwater_set_away_mode(device_id, away_mode)
+
+    def hotwater_set_mode(self, device_id, mode):
+        if device_id not in self.hotwatercontrollers:
+            return
+
+        try:
+            self._session.post(
+                f"{self._czfe_url}/v5/put",
+                json={
+                    "objects": [
+                        {
+                            "object_key": f'device.{device_id}',
+                            "op": "MERGE",
+                            "value": {"hot_water_mode": mode},
+                        }
+                    ]
+                },
+                headers={"Authorization": f"Basic {self._access_token}"},
+            )
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error(e)
+            _LOGGER.error('Failed to set hot water mode, trying again')
+            self.hotwater_set_boost(device_id, mode)
+        except KeyError:
+            _LOGGER.debug('Failed to set hot water mode, '
+                          'trying to log in again')
+            self.login()
+            self.hotwater_set_boost(device_id, mode)
 
     def _camera_set_properties(self, device_id, property, value):
         if device_id not in self.cameras:
